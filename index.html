@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wafer Geometry Fleet Twin</title>
+<style>
+/* Layout: control bar · bay map (to scale) + selected-tool panel · fleet KPIs and per-tool table · charts · log + assumptions */
+:root{
+  --bg:#f2f4f6; --paper:#ffffff; --ink:#11161b; --ink2:#4b5560; --muted:#7d8792; --rule:#dce1e6; --grid:#e6e9ec; --axis:#b9c0c7;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s7:#4a3aa7; --accent:#2a78d6;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --remote:#2a78d6; --eng:#4a3aa7;
+  --floor:#eef1f3; --tool:#d7dde3; --toolline:#8c96a0; --rail:#9aa5b0; --chip:#eef1f4;
+  --good-soft:#e5f5e5; --warn-soft:#fff3d6; --crit-soft:#fbe6e6;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace; --sans:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0e1216; --paper:#161b21; --ink:#e6e9ed; --ink2:#a9b2bc; --muted:#7c8691; --rule:#2a323b; --grid:#232a32; --axis:#3d4650;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s7:#9085e9; --accent:#3987e5; --remote:#3987e5; --eng:#9085e9;
+  --floor:#12171c; --tool:#2a323b; --toolline:#5d6874; --rail:#4a5560; --chip:#1e252d;
+  --good-soft:#123018; --warn-soft:#352a10; --crit-soft:#3a1717; color-scheme:dark }}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+.wrap{max-width:1360px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:14px}
+.eyebrow{font:600 11px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--eng)}
+h1{font:650 clamp(22px,3vw,30px)/1.15 var(--sans);margin:4px 0 6px;letter-spacing:-.01em}
+.lede{color:var(--ink2);margin:0;max-width:110ch}
+.conf{font:12px var(--mono);color:var(--crit)}
+.panel{background:var(--paper);border:1px solid var(--rule);padding:12px 14px;min-width:0;display:grid;gap:8px;align-content:start}
+h3{font:600 13px/1.3 var(--sans);margin:0;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+h3 small{font:400 12px var(--mono);color:var(--muted)}
+.bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;background:var(--paper);border:1px solid var(--rule);padding:10px 14px}
+.bar .g{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar label{font-size:12.5px;color:var(--ink2);display:flex;gap:6px;align-items:center}
+.clock{font:600 19px/1 var(--mono);font-variant-numeric:tabular-nums;min-width:13ch}
+button{font:500 13px var(--sans);border:1px solid var(--rule);background:var(--chip);color:var(--ink);padding:5px 11px;border-radius:4px;cursor:pointer}
+button:hover{border-color:var(--accent)} button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.inj{background:transparent;border-color:var(--eng);color:var(--ink)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number]{font:13px var(--sans);background:var(--paper);color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px}
+input[type=number]{width:64px}
+.lab{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--eng)}
+.top{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px}
+.mid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.bot{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
+@media (max-width:1000px){.top,.bot{grid-template-columns:1fr}}
+canvas{width:100%;display:block}
+#bay{height:420px;cursor:pointer}
+.cv-sm{height:170px} #gantt{height:190px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink2)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.kpi{background:var(--paper);padding:9px 12px}.kpi .v{font:650 22px/1.1 var(--sans);font-variant-numeric:tabular-nums}.kpi .l{font-size:11.5px;color:var(--ink2)}
+.stations{display:grid;gap:4px}
+.st{display:grid;grid-template-columns:118px 1fr;gap:8px;align-items:center;font-size:12.5px;border-bottom:1px dashed var(--grid);padding:3px 0}
+.st b{font-weight:600;color:var(--ink2)} .st span{font:12px var(--mono)}
+.pill{font:600 12px var(--mono);padding:2px 8px;border-radius:3px;display:inline-block}
+.p-PROD{background:var(--good-soft);color:var(--good)} .p-STBY{background:var(--warn-soft);color:var(--ink)} .p-ENG{background:var(--chip);color:var(--eng)}
+.p-SDT,.p-UDT{background:var(--crit-soft);color:var(--crit)}
+.tbl{overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--rule);text-align:right;white-space:nowrap}
+th:first-child,td:first-child,.l{text-align:left}
+th{font:600 10.5px var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--ink2)}
+tr.sel td{background:var(--chip)} tbody tr{cursor:pointer}
+.ok{color:var(--good)} .bad{color:var(--crit)}
+.log{font:12px/1.55 var(--mono);max-height:300px;overflow:auto}
+.log div{display:grid;grid-template-columns:62px 58px 1fr;gap:6px;border-bottom:1px dashed var(--grid)}
+.log .ts{color:var(--muted)} .log .src{color:var(--ink2);font-weight:600} .log .crit .msg,.log .crit .src{color:var(--crit)} .log .sim .msg,.log .sim .src{color:var(--eng)} .log .warn .src{color:var(--warn)}
+.note{font-size:12px;color:var(--ink2)}
+ul.as{margin:0;padding-left:18px;font-size:12.5px;display:grid;gap:4px}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--paper);font:12px/1.4 var(--mono);padding:5px 8px;border-radius:3px;z-index:9;white-space:pre}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style></head><body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">Fab digital twin · simulation mode · placeholder timings</div>
+  <h1>Wafer geometry tools in a 300 mm bay</h1>
+  <p class="lede">Several double-sided wafer geometry tools share an overhead-transport loop and a stocker. Each tool is modelled station by station: two load ports, an edge-grip robot, a pre-aligner with a thickness probe, and the measurement chamber. All dimensions and station times are generic placeholders, set so one tool measures a wafer about once a minute.</p>
+</header>
+
+<div class="bar">
+  <div class="g"><span class="clock" id="clock">D1 00:00:00</span><button class="primary" id="run">Pause</button><button id="reset">Reset</button>
+    <label for="speed">Speed <select id="speed"><option value="60">1 min/s</option><option value="300" selected>5 min/s</option><option value="900">15 min/s</option><option value="3600">1 h/s</option></select></label></div>
+  <div class="g">
+    <label for="ntools">Tools <select id="ntools"><option>2</option><option>4</option><option selected>6</option><option>8</option></select></label>
+    <label for="demand">Demand <input type="number" id="demand" value="10" min="1" max="40" step="1"> lots/h</label>
+    <label for="sample">Measure <select id="sample"><option value="25" selected>25</option><option value="13">13</option><option value="5">5</option></select> of 25</label>
+    <label for="mode">Mode <select id="mode"><option value="ht" selected>High Throughput</option><option value="std">Standard</option></select></label>
+    <label for="rep">Repeats <select id="rep"><option>1</option><option>2</option><option>3</option></select></label>
+    <label for="rule">Dispatch <select id="rule"><option value="least" selected>Least work</option><option value="rr">Round robin</option><option value="match">Matched tools only</option></select></label>
+    <label for="mon">Monitor every <select id="mon"><option value="4">4 h</option><option value="8">8 h</option><option value="24" selected>24 h</option></select></label>
+    <label for="veh">OHT vehicles <select id="veh"><option>2</option><option selected>4</option><option>6</option></select></label>
+  </div>
+</div>
+<div class="bar">
+  <span class="lab">Inject on selected tool</span>
+  <button class="inj" data-i="alarm">Handler alarm</button><button class="inj" data-i="drift">Calibration drift</button><button class="inj" data-i="pm">Start PM now</button>
+  <span class="lab">Fab</span>
+  <button class="inj" data-i="surge">Demand surge ×1.6 (4 h)</button><button class="inj" data-i="oht">OHT vehicle down (2 h)</button>
+  <span class="note" id="selnote">Selected: GT-01</span>
+</div>
+
+<div class="top">
+  <div class="panel">
+    <h3>Bay layout <small id="baysub">to scale · click a tool</small></h3>
+    <canvas id="bay" role="img" aria-label="Bay map with geometry tools, load ports, stocker and overhead transport"></canvas>
+    <div class="legend"><span><i style="background:var(--good)"></i>Productive</span><span><i style="background:var(--warn)"></i>Standby (idle)</span><span><i style="background:var(--eng)"></i>Engineering (monitor / recal)</span><span><i style="background:var(--crit)"></i>Down (alarm, repair, PM)</span><span><i style="background:var(--s1)"></i>FOUP / vehicle carrying</span><span><i style="border:1px dashed var(--toolline);background:transparent"></i>Service clearance</span></div>
+  </div>
+  <div class="panel">
+    <h3 id="tname">GT-01 <small id="tsub"></small></h3>
+    <div><span class="pill p-STBY" id="tstate">STBY</span> <span class="note" id="tphase"></span></div>
+    <div class="stations" id="stations"></div>
+    <h3>Station timeline <small>last 10 min</small></h3>
+    <canvas id="gantt"></canvas>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Robot move</span><span><i style="background:var(--s3)"></i>Align + thickness</span><span><i style="background:var(--muted)"></i>Pallet in / out</span><span><i style="background:var(--s2)"></i>Acquire</span><span><i style="background:var(--s7)"></i>Dock / undock</span></div>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="v" id="k-wph">0</div><div class="l">Fleet wafers/h (last hour)</div></div>
+  <div class="kpi"><div class="v" id="k-spw">–</div><div class="l">Wafer-to-wafer within a lot</div></div>
+  <div class="kpi"><div class="v" id="k-lots">0</div><div class="l">Lots completed</div></div>
+  <div class="kpi"><div class="v" id="k-ct">–</div><div class="l">Mean lot cycle time</div></div>
+  <div class="kpi"><div class="v" id="k-wait">–</div><div class="l">Mean wait for a tool</div></div>
+  <div class="kpi"><div class="v" id="k-q">0</div><div class="l">Lots waiting in stocker</div></div>
+  <div class="kpi"><div class="v" id="k-av">–</div><div class="l">Fleet availability</div></div>
+</div>
+
+<div class="mid">
+  <div class="panel"><h3>Fleet throughput <small>wafers/h, rolling 1 h</small></h3><canvas id="c-wph" class="cv-sm"></canvas></div>
+  <div class="panel"><h3>Lots waiting for a tool <small>stocker queue</small></h3><canvas id="c-q" class="cv-sm"></canvas></div>
+  <div class="panel"><h3>Tool matching <small>latest monitor Δ thickness, nm · limit ±30</small></h3><canvas id="c-m" class="cv-sm"></canvas></div>
+</div>
+
+<div class="bot">
+  <div class="panel"><h3>Tools <small>E10 time shares since start</small></h3>
+    <div class="tbl"><table><thead><tr><th>Tool</th><th class="l">State</th><th>wph (1 h)</th><th>Wafers</th><th>Productive</th><th>Standby</th><th>Down</th><th>Availability</th><th>Δ THK nm</th><th class="l">Matching</th></tr></thead><tbody id="ttab"></tbody></table></div></div>
+  <div class="panel"><h3>Event log <small>MES · AMHS · EQP · MATCH</small></h3><div class="log" id="log"></div></div>
+</div>
+
+<div class="panel"><h3>Model and placeholder values</h3>
+<ul class="as">
+  <li><b>Tool model:</b> two load ports; edge-grip robot; pre-aligner with thickness probe; measurement chamber where both sides are acquired at once; repeats keep the wafer in the chamber. Light tower states map to the SEMI E10 states shown.</li>
+  <li><b>Footprint (placeholder):</b> tool 1.7 × 2.5 m plus 0.5 m load ports; 1.0 m service clearance on every side, shared between neighbouring tools; 3.0 m aisle.</li>
+  <li><b>Placeholder station times (s):</b> dock + map 35, undock 20, robot pick 6, align + thickness 14, robot to pallet 5, pallet in 12, acquire 25 (Standard 40) × repeats, pallet out 10, robot back to slot 8. That gives a 60 s pallet cycle.</li>
+  <li><b>Placeholder events:</b> handler/gauge alarm MTBF 36 h, 15 min response + 20–60 min repair + 5 min warm-up; PM every 7 days for 4 h + 30 min thermal settle; 10 min monitor wafer every 24 h (adjustable); recalibration 60 min if |Δ thickness| &gt; 30 nm.</li>
+  <li><b>AMHS:</b> stocker at the bay end, OHT 2 m/s, 12 s pick and 12 s drop. Lots arrive at random (Poisson) at the set demand.</li>
+  <li>Repeatability σ 8 nm for thickness and the tool offsets are placeholders. The same seed gives the same run after Reset.</li>
+</ul></div>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/* ---------- parameters ---------- */
+const D={dock:35,undock:20,pick:6,align:14,load:5,in:12,acq:{ht:25,std:40},out:10,unload:8,proc:6};
+const GEO={bw:1.7,bd:2.5,lp:0.5,gap:1.0,aisle:3.0,rear:1.0,front:1.0,left:1.0,right:1.0,x0:5.0,stockW:3.2};
+const EV={mtbf:36*3600,resp:15*60,repMin:20*60,repMax:60*60,warm:5*60,pmInt:7*86400,pmDur:4*3600,pmWarm:30*60,monInt:86400,monDur:600,recal:3600,lim:30,sigThk:8.04};
+const CFG={mon:24,n:6,demand:10,sample:25,mode:'ht',rep:1,rule:'least',veh:4,speed:300};
+/* ---------- rng ---------- */
+let seed;const rnd=()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const gauss=()=>{let u=0;while(!u)u=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*rnd())};
+const expo=m=>-Math.log(1-rnd())*m;
+/* ---------- event queue ---------- */
+let H,now,S;
+function push(t,fn){H.push({t,fn});let i=H.length-1;while(i>0){const p=(i-1)>>1;if(H[p].t<=H[i].t)break;[H[p],H[i]]=[H[i],H[p]];i=p}}
+function pop(){const top=H[0],last=H.pop();if(H.length){H[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<H.length&&H[l].t<H[m].t)m=l;if(r<H.length&&H[r].t<H[m].t)m=r;if(m===i)break;[H[m],H[i]]=[H[i],H[m]];i=m}}return top}
+const at=(dt,fn)=>push(now+dt,fn);
+const fmt=t=>{const d=Math.floor(t/86400)+1,h=Math.floor(t%86400/3600),m=Math.floor(t%3600/60),s=Math.floor(t%60);return `D${d} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`};
+const hm=t=>fmt(t).slice(3,8);
+function log(src,msg,cls=''){S.log.unshift({t:now,src,msg,cls});if(S.log.length>150)S.log.pop()}
+
+/* ---------- build ---------- */
+function build(){
+  seed=20261002;H=[];now=0;
+  S={tools:[],queue:[],lots:[],seq:0,veh:[],ohtQ:[],sel:0,rr:0,log:[],hist:[],done:[],pace:[],monGen:0,surgeUntil:0,vehDownUntil:0};
+  const n=CFG.n,top=Math.ceil(n/2),pitch=GEO.bw+GEO.gap;
+  for(let i=0;i<n;i++){
+    const row=i<top?0:1,col=row?i-top:i,x=GEO.x0+col*pitch;
+    const T={i,id:'GT-'+String(i+1).padStart(2,'0'),row,x,lps:[mkLP('A'),mkLP('B')],robot:false,aligner:null,pallet:null,
+      state:'STBY',since:0,e10:{PROD:0,STBY:0,ENG:0,SDT:0,UDT:0},phase:'',light:'warn',pending:null,down:false,
+      offThk:6*gauss(),drift:0,mon:null,inhibit:false,wafers:0,doneT:[],gantt:[],busyT:0};
+    S.tools.push(T);
+    at(expo(EV.mtbf),()=>alarm(T,'handler/gauge alarm'));
+    at(EV.pmInt*(0.25+0.75*rnd()),()=>schedPM(T));
+    at(1800+i*900,()=>schedMon(T,0));
+  }
+  const nv=CFG.veh;for(let v=0;v<nv;v++)S.veh.push({id:v,x:1.6,y:laneY(v%2),busy:false,segs:[],load:null});
+  at(expo(3600/CFG.demand),arrive);
+  sample();
+  log('SYS',`Twin started · ${n} tools · ${nv} OHT vehicles · demand ${CFG.demand} lots/h`);
+}
+function mkLP(name){return{name,state:'empty',lot:null,dockedAt:0}}
+const rowY=r=>r?GEO.rear+GEO.bd+GEO.lp+GEO.aisle:GEO.rear;          // top edge of LP face row reference
+function laneY(r){const a0=GEO.rear+GEO.bd+GEO.lp;return r?a0+GEO.aisle-0.55:a0+0.55}
+function lpX(T,k){return T.x+(k?1.22:0.66)}
+
+/* ---------- MES / dispatch ---------- */
+function arrive(){
+  const lot={id:'L'+String(++S.seq).padStart(5,'0'),n:CFG.sample,picked:0,ret:0,arr:now,disp:null,dock:null,done:null,tool:null};
+  S.lots.push(lot);S.queue.push(lot);log('MES',`Lot ${lot.id} released · ${lot.n} of 25 wafers to measure`);
+  dispatch();
+  const rate=CFG.demand*(now<S.surgeUntil?1.6:1);at(expo(3600/rate),arrive);
+}
+function toolOK(T){return !T.down&&!T.pending&&!T.inhibit}
+function work(T){return T.lps.reduce((a,l)=>a+(l.lot?l.lot.n-l.lot.ret:0),0)}
+function dispatch(){
+  while(S.queue.length){
+    let cands=S.tools.filter(T=>toolOK(T)&&T.lps.some(l=>l.state==='empty'));
+    if(CFG.rule==='match')cands=cands.filter(T=>!T.mon||Math.abs(T.mon.thk)<EV.lim/2);
+    if(!cands.length)return;
+    let T;
+    if(CFG.rule==='rr'){cands.sort((a,b)=>((a.i-S.rr+99)%S.tools.length)-((b.i-S.rr+99)%S.tools.length));T=cands[0];S.rr=(T.i+1)%S.tools.length}
+    else{cands.sort((a,b)=>work(a)-work(b)||a.i-b.i);T=cands[0]}
+    const k=T.lps.findIndex(l=>l.state==='empty'),lp=T.lps[k],lot=S.queue.shift();
+    lp.state='incoming';lp.lot=lot;lot.disp=now;lot.tool=T.id;
+    log('MES',`Dispatch ${lot.id} → ${T.id} port ${lp.name}`);
+    oht(GEO.stockW/2,lpX(T,k),T.row,lot,()=>{lp.state='dock';lot.dock=now;setState(T);gantt(T,'LP '+lp.name,'dock',lot.id,D.dock);at(D.dock,()=>{lp.state='ready';lp.dockedAt=now;kick(T)})});
+  }
+}
+/* ---------- AMHS ---------- */
+function oht(x0,x1,row,lot,cb){S.ohtQ.push({x0,x1,row,lot,cb});ohtNext()}
+function ohtNext(){
+  const avail=S.veh.filter((v,i)=>!v.busy&&!(now<S.vehDownUntil&&i===0));
+  while(S.ohtQ.length&&avail.length){
+    const job=S.ohtQ.shift();avail.sort((a,b)=>Math.abs(a.x-job.x0)-Math.abs(b.x-job.x0));const v=avail.shift();v.busy=true;
+    const sp=2.0,t1=Math.abs(v.x-job.x0)/sp,t2=Math.abs(job.x1-job.x0)/sp,y=laneY(job.row);
+    v.segs=[{t0:now,t1:now+t1,x0:v.x,x1:job.x0,y0:v.y,y1:y,load:false},{t0:now+t1,t1:now+t1+12,x0:job.x0,x1:job.x0,y0:y,y1:y,load:true},
+      {t0:now+t1+12,t1:now+t1+12+t2,x0:job.x0,x1:job.x1,y0:y,y1:y,load:true},{t0:now+t1+12+t2,t1:now+t1+24+t2,x0:job.x1,x1:job.x1,y0:y,y1:y,load:true}];
+    v.load=job.lot;
+    at(t1+24+t2,()=>{v.busy=false;v.x=job.x1;v.y=y;v.segs=[];v.load=null;job.cb();ohtNext()});
+  }
+}
+/* ---------- tool behaviour ---------- */
+function gantt(T,res,kind,label,dur){T.gantt.push({res,kind,label,t0:now,t1:now+dur});if(T.gantt.length>400)T.gantt.splice(0,100)}
+function act(T,res,kind,label,dur,cb){gantt(T,res,kind,label,dur);at(dur,cb)}
+const inside=T=>T.robot||T.aligner||T.pallet;
+function canStart(T){return !T.down&&!T.pending&&T.lps.some(l=>l.state==='ready'&&l.lot.picked<l.lot.n)}
+function kick(T){
+  if(T.pending&&!inside(T)){startDown(T);return}
+  if(!T.down&&!T.robot){
+    if(T.pallet&&T.pallet.st==='done'){const w=T.pallet.w;T.robot=true;T.pallet.st='unload';
+      act(T,'Robot','robot',w.id,D.unload,()=>{T.robot=false;T.pallet=null;returned(T,w);kick(T)})}
+    else if(!T.pallet&&T.aligner&&T.aligner.st==='done'){const w=T.aligner.w;T.robot=true;T.aligner=null;
+      act(T,'Robot','robot',w.id,D.load,()=>{T.robot=false;T.pallet={w,st:'meas'};metro(T,w);kick(T)})}
+    else if(!T.aligner&&canStart(T)){
+      const lp=T.lps.filter(l=>l.state==='ready'&&l.lot.picked<l.lot.n).sort((a,b)=>a.dockedAt-b.dockedAt)[0];
+      const lot=lp.lot,w={id:`${lot.id}.${String(++lot.picked).padStart(2,'0')}`,lot,lp};lp.state=lot.picked<lot.n?'ready':'busy';
+      T.robot=true;
+      act(T,'Robot','robot',w.id,D.pick,()=>{T.robot=false;T.aligner={w,st:'align'};
+        act(T,'Aligner','align',w.id,D.align,()=>{T.aligner.st='done';kick(T)});kick(T)})}
+  }
+  setState(T);
+}
+function metro(T,w){
+  const acq=D.acq[CFG.mode]*CFG.rep;
+  act(T,'Interferometer','move',w.id,D.in,()=>act(T,'Interferometer','acq',w.id,acq,()=>act(T,'Interferometer','move',w.id,D.out,()=>{
+    T.pallet.st='done';T.busyT+=D.in+acq+D.out;kick(T)})));
+}
+function returned(T,w){
+  const lot=w.lot;if(T.lastRet&&T.lastRet.lot===lot)S.pace.push({t:now,d:now-T.lastRet.t});T.lastRet={lot,t:now};if(S.pace.length>3000)S.pace.splice(0,1000);lot.ret++;T.wafers++;T.doneT.push(now);S.done.push(now);
+  if(lot.ret===lot.n){
+    const lp=w.lp,k=T.lps.indexOf(lp);lp.state='undock';
+    gantt(T,'LP '+lp.name,'dock',lot.id,D.undock);
+    at(D.undock,()=>{lp.state='leaving';setState(T);
+      oht(lpX(T,k),GEO.stockW/2,T.row,lot,()=>{lot.done=now;lp.state='empty';lp.lot=null;S.lotsDone=(S.lotsDone||0)+1;setState(T);
+        log('MES',`Lot ${lot.id} complete on ${T.id} · cycle ${((lot.done-lot.arr)/60).toFixed(0)} min`);dispatch()});dispatch()});
+  }
+}
+/* ---------- states / downs ---------- */
+function setState(T,force){
+  let s=force;
+  if(!s){if(T.down)return;s=(inside(T)||T.lps.some(l=>['dock','ready','busy','undock'].includes(l.state)))?'PROD':'STBY'}
+  if(s!==T.state){T.e10[T.state]+=now-T.since;T.state=s;T.since=now}
+  if(!T.down){T.light=s==='PROD'?'good':'warn';T.phase=s==='PROD'?'auto-operation':'idle, waiting for material'}
+}
+function requestDown(T,phases,why,after){
+  if(T.pending||T.down)return false;T.pending={phases,why,after};
+  log('EQP',`${T.id}: ${why}${inside(T)?' — finishing wafers in tool':''}`,phases[0].e10==='UDT'?'crit':'');kick(T);return true;
+}
+function startDown(T){
+  const p=T.pending;T.pending=null;T.down=true;let i=0;
+  const next=()=>{if(i>=p.phases.length){T.down=false;T.phase='';setState(T,'STBY');setState(T);log('EQP',`${T.id} back in production`);if(p.after)p.after();kick(T);dispatch();return}
+    const ph=p.phases[i++];setState(T,ph.e10);T.light=ph.light;T.phase=ph.name;at(ph.dur,next)};
+  next();
+}
+function alarm(T,why){
+  const ok=requestDown(T,[{name:'ALARM — waiting for engineer',dur:EV.resp,e10:'UDT',light:'critflash'},
+    {name:'repair',dur:EV.repMin+rnd()*(EV.repMax-EV.repMin),e10:'UDT',light:'crit'},{name:'warm-up (out of limits)',dur:EV.warm,e10:'UDT',light:'warnsteady'}],why);
+  at(expo(EV.mtbf)+(ok?0:600),()=>alarm(T,'handler/gauge alarm'));
+}
+function schedPM(T,manual){
+  requestDown(T,[{name:'PM',dur:EV.pmDur,e10:'SDT',light:'crit'},{name:'thermal settle',dur:EV.pmWarm,e10:'SDT',light:'warnsteady'}],manual?'PM started by engineer':'scheduled PM',
+    ()=>{T.offThk=4*gauss();T.drift=0;T.inhibit=false;at(1,()=>schedMonNow(T))});
+  if(!manual)at(EV.pmInt,()=>schedPM(T));
+}
+function schedMon(T,g){if(g!==S.monGen)return;schedMonNow(T);at(CFG.mon*3600,()=>schedMon(T,g))}
+function schedMonNow(T){requestDown(T,[{name:'monitor wafer',dur:EV.monDur,e10:'ENG',light:'eng'}],'monitor wafer',()=>monitorResult(T))}
+function monitorResult(T){
+  const thk=T.offThk+(T.drift?T.drift*(now-T.driftT)/3600:0)+EV.sigThk*gauss();T.mon={t:now,thk};
+  const okm=Math.abs(thk)<=EV.lim;
+  log('MATCH',`${T.id} monitor Δ thickness ${thk.toFixed(1)} nm · ${okm?'matched':'OUT OF MATCH → inhibited'}`,okm?'':'crit');
+  if(!okm){T.inhibit=true;
+    at(1,()=>requestDown(T,[{name:'recalibration',dur:EV.recal,e10:'UDT',light:'crit'}],'matching failure — recalibration',
+      ()=>{T.offThk=4*gauss();T.drift=0;T.inhibit=false;T.mon={t:now,thk:T.offThk+EV.sigThk*gauss()};log('MATCH',`${T.id} recalibrated · Δ ${T.mon.thk.toFixed(1)} nm`)}))}
+}
+/* ---------- sampling for charts ---------- */
+function sample(){
+  const w=S.done.filter(t=>t>now-3600).length;
+  S.hist.push({t:now,wph:now<3600?w*3600/Math.max(now,1):w,q:S.queue.length});if(S.hist.length>2000)S.hist.shift();
+  at(300,sample);
+}
+/* ---------- inject ---------- */
+function inject(k){
+  const T=S.tools[S.sel];
+  if(k==='alarm'){log('SIM',`Injected alarm on ${T.id}`,'sim');requestDown(T,[{name:'ALARM — waiting for engineer',dur:EV.resp,e10:'UDT',light:'critflash'},{name:'repair',dur:40*60,e10:'UDT',light:'crit'},{name:'warm-up (out of limits)',dur:EV.warm,e10:'UDT',light:'warnsteady'}],'robot servo error')}
+  if(k==='drift'){if(!T.drift){T.driftT=now;T.drift=12;log('SIM',`Injected calibration drift on ${T.id} (+12 nm/h)`,'sim')}}
+  if(k==='pm'){log('SIM',`PM requested on ${T.id}`,'sim');schedPM(T,true)}
+  if(k==='surge'){S.surgeUntil=now+4*3600;log('SIM','Demand surge ×1.6 for 4 h','sim')}
+  if(k==='oht'){S.vehDownUntil=now+2*3600;log('SIM','One OHT vehicle down for 2 h','sim')}
+}
+
+/* ---------- drawing ---------- */
+const tip=$('tip');let bayPts=[];
+function fit(cv){const dpr=devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);return [c,w,h]}
+function lightCol(l,blink){return l==='good'?css('--good'):l==='warn'?(blink?css('--warn'):css('--grid')):l==='warnsteady'?css('--warn'):l==='eng'?css('--eng'):l==='critflash'?(blink?css('--crit'):css('--grid')):css('--crit')}
+function drawBay(){
+  const cv=$('bay'),[c,w,h]=fit(cv);bayPts=[];
+  const cols=Math.ceil(S.tools.length/2),pitch=GEO.bw+GEO.gap;
+  const Wm=GEO.x0+cols*pitch+GEO.right+0.6,Hm=GEO.rear*2+GEO.bd*2+GEO.lp*2+GEO.aisle;
+  const sc=Math.min((w-20)/Wm,(h-24)/Hm),ox=(w-Wm*sc)/2,oy=12;
+  const X=x=>ox+x*sc,Y=y=>oy+y*sc;
+  $('baysub').textContent=`to scale · ${Wm.toFixed(1)} × ${Hm.toFixed(1)} m · click a tool`;
+  c.fillStyle=css('--floor');c.fillRect(X(0),Y(0),Wm*sc,Hm*sc);
+  // aisle + rails
+  const a0=GEO.rear+GEO.bd+GEO.lp;
+  c.strokeStyle=css('--rail');c.lineWidth=2;c.setLineDash([]);
+  [0,1].forEach(r=>{c.beginPath();c.moveTo(X(GEO.stockW),Y(laneY(r)));c.lineTo(X(Wm-0.4),Y(laneY(r)));c.stroke()});
+  c.beginPath();c.moveTo(X(Wm-0.4),Y(laneY(0)));c.lineTo(X(Wm-0.4),Y(laneY(1)));c.stroke();
+  c.fillStyle=css('--muted');c.font='11px '+css('--mono');c.textAlign='right';c.fillText('OHT loop',X(Wm-0.5),Y(a0+GEO.aisle/2)+4);
+  // stocker
+  c.fillStyle=css('--tool');c.strokeStyle=css('--toolline');c.lineWidth=1;
+  c.fillRect(X(0.2),Y(a0-1.2),(GEO.stockW-0.4)*sc,(GEO.aisle+2.4)*sc);c.strokeRect(X(0.2),Y(a0-1.2),(GEO.stockW-0.4)*sc,(GEO.aisle+2.4)*sc);
+  c.fillStyle=css('--ink2');c.textAlign='center';c.font='600 11px '+css('--sans');c.fillText('Stocker',X(GEO.stockW/2),Y(a0+GEO.aisle/2)-6);
+  c.font='11px '+css('--mono');c.fillText(`${S.queue.length} waiting`,X(GEO.stockW/2),Y(a0+GEO.aisle/2)+10);
+  const blink=Math.floor(performance.now()/500)%2===0;
+  for(const T of S.tools){
+    const top=T.row===0,by=top?GEO.rear:a0+GEO.aisle+GEO.lp,ly=top?GEO.rear+GEO.bd:a0+GEO.aisle;
+    // clearance
+    c.setLineDash([4,3]);c.strokeStyle=css('--toolline');c.lineWidth=1;
+    const cy0=top?0:a0+GEO.aisle-GEO.front+GEO.lp*0, cy1=top?ly+GEO.lp+GEO.front:by+GEO.bd+GEO.rear;
+    c.strokeRect(X(T.x-GEO.left),Y(top?0:ly-GEO.front),(GEO.bw+GEO.left+GEO.right)*sc,(GEO.bd+GEO.lp+GEO.front+GEO.rear)*sc);c.setLineDash([]);
+    // body
+    c.fillStyle=css('--tool');c.fillRect(X(T.x),Y(by),GEO.bw*sc,GEO.bd*sc);
+    c.lineWidth=T.i===S.sel?2.5:1;c.strokeStyle=T.i===S.sel?css('--accent'):css('--toolline');c.strokeRect(X(T.x),Y(by),GEO.bw*sc,GEO.bd*sc);
+    // handler section line
+    c.lineWidth=1;c.strokeStyle=css('--toolline');const hy=top?by+GEO.bd-0.8:by+0.8;c.beginPath();c.moveTo(X(T.x),Y(hy));c.lineTo(X(T.x+GEO.bw),Y(hy));c.stroke();
+    // state band
+    const sc_=T.down?(T.state==='ENG'?css('--eng'):css('--crit')):T.state==='PROD'?css('--good'):css('--warn');
+    c.fillStyle=sc_;c.globalAlpha=.85;const band=0.28;c.fillRect(X(T.x),Y(top?by:by+GEO.bd-band),GEO.bw*sc,band*sc);c.globalAlpha=1;
+    // light tower
+    c.fillStyle=lightCol(T.light,blink);c.beginPath();c.arc(X(T.x+GEO.bw-0.18),Y(top?by+0.5:by+GEO.bd-0.5),Math.max(3.5,0.13*sc),0,7);c.fill();
+    c.fillStyle=css('--remote');c.beginPath();c.arc(X(T.x+GEO.bw-0.18),Y(top?by+0.82:by+GEO.bd-0.82),Math.max(2.5,0.08*sc),0,7);c.fill();
+    // label
+    c.fillStyle=css('--ink');c.textAlign='center';c.font='600 '+Math.max(10,Math.min(13,0.32*sc))+'px '+css('--sans');
+    c.fillText(T.id,X(T.x+GEO.bw/2-0.1),Y(by+GEO.bd/2)-2);
+    c.fillStyle=css('--ink2');c.font=Math.max(9,Math.min(11,0.26*sc))+'px '+css('--mono');
+    c.fillText(T.down?T.phase.split(' ')[0]:T.state,X(T.x+GEO.bw/2-0.1),Y(by+GEO.bd/2)+12);
+    // load ports + FOUPs
+    T.lps.forEach((lp,k)=>{const cx=lpX(T,k),x0=cx-0.25;c.strokeStyle=css('--toolline');c.fillStyle=css('--paper');c.fillRect(X(x0),Y(ly),0.5*sc,GEO.lp*sc);c.strokeRect(X(x0),Y(ly),0.5*sc,GEO.lp*sc);
+      if(lp.lot&&lp.state!=='incoming'&&lp.state!=='leaving'){const f=lp.state==='ready'||lp.state==='busy'?css('--s1'):css('--s7');c.fillStyle=f;c.fillRect(X(x0+0.07),Y(ly+0.06),0.36*sc,(GEO.lp-0.12)*sc);
+        if(lp.state==='ready'||lp.state==='busy'){const fr=lp.lot.ret/lp.lot.n;c.fillStyle=css('--good');c.fillRect(X(x0+0.07),Y(ly+GEO.lp-0.1),0.36*sc*fr,0.05*sc)}}
+      else if(lp.state==='incoming'){c.setLineDash([2,2]);c.strokeStyle=css('--s1');c.strokeRect(X(x0+0.07),Y(ly+0.06),0.36*sc,(GEO.lp-0.12)*sc);c.setLineDash([])}
+      c.fillStyle=css('--muted');c.font='9px '+css('--mono');c.textAlign='center';if(sc>40)c.fillText(lp.name,X(cx),Y(top?ly+GEO.lp:ly)+(top?10:-3))});
+    bayPts.push({x0:X(T.x-0.2),x1:X(T.x+GEO.bw+0.2),y0:Y(Math.min(by,ly)),y1:Y(Math.max(by+GEO.bd,ly+GEO.lp)),T});
+  }
+  // vehicles
+  for(const v of S.veh){let x=v.x,y=v.y,loaded=false;
+    for(const s of v.segs){if(now>=s.t0&&now<=s.t1){const f=s.t1>s.t0?(now-s.t0)/(s.t1-s.t0):1;x=s.x0+(s.x1-s.x0)*f;y=s.y0+(s.y1-s.y0)*f;loaded=s.load;break}}
+    if(v.segs.length&&now>v.segs[v.segs.length-1].t1){const s=v.segs[v.segs.length-1];x=s.x1;y=s.y1}
+    c.fillStyle=css('--paper');c.strokeStyle=css('--ink2');c.lineWidth=1.5;c.fillRect(X(x-0.3),Y(y-0.18),0.6*sc,0.36*sc);c.strokeRect(X(x-0.3),Y(y-0.18),0.6*sc,0.36*sc);
+    if(loaded){c.fillStyle=css('--s1');c.fillRect(X(x-0.18),Y(y-0.12),0.36*sc,0.24*sc)}}
+  // scale bar
+  c.strokeStyle=css('--ink2');c.lineWidth=1.5;c.beginPath();c.moveTo(X(0.3),Y(Hm)-6);c.lineTo(X(2.3),Y(Hm)-6);c.stroke();c.fillStyle=css('--ink2');c.textAlign='left';c.font='10px '+css('--mono');c.fillText('2 m',X(2.4),Y(Hm)-2);
+}
+function drawGantt(){
+  const cv=$('gantt'),[c,w,h]=fit(cv),T=S.tools[S.sel],rows=['LP A','LP B','Robot','Aligner','Interferometer'],L=104,R=8,top=6,rh=(h-top-20)/rows.length,t0=now-600;
+  const X=t=>L+(t-t0)/600*(w-L-R);cv._pts=[];
+  c.font='11px '+css('--mono');c.textBaseline='middle';
+  rows.forEach((r,i)=>{c.fillStyle=css('--ink2');c.textAlign='right';c.fillText(r,L-6,top+i*rh+rh/2);c.strokeStyle=css('--grid');c.beginPath();c.moveTo(L,top+(i+1)*rh);c.lineTo(w-R,top+(i+1)*rh);c.stroke()});
+  const col={robot:css('--s1'),align:css('--s3'),move:css('--muted'),acq:css('--s2'),dock:css('--s7')};
+  for(const g of T.gantt){if(g.t1<t0||g.t0>now)continue;const i=rows.indexOf(g.res);if(i<0)continue;
+    const x0=Math.max(L,X(g.t0)),x1=Math.min(X(Math.min(g.t1,now)),w-R);if(x1<=x0)continue;
+    c.fillStyle=col[g.kind];c.fillRect(x0,top+i*rh+3,Math.max(1,x1-x0-1),rh-6);cv._pts.push({x0,x1,y0:top+i*rh,y1:top+(i+1)*rh,tip:`${g.res} · ${g.kind}\n${g.label}\n${(g.t1-g.t0).toFixed(0)} s`})}
+  c.fillStyle=css('--muted');c.textAlign='center';c.textBaseline='top';
+  for(let m=2;m<10;m+=2){c.fillText(`−${10-m} min`,X(t0+m*60),h-14)}c.textAlign='right';c.fillText('now',w-R,h-14);
+}
+function nice(a,b,n){const span=b-a||1,st=Math.pow(10,Math.floor(Math.log10(span/n))),e=span/n/st,s=st*(e>=5?10:e>=2?5:e>=1?2:1);const o=[];for(let v=Math.ceil(a/s)*s;v<=b+1e-9;v+=s)o.push(+v.toFixed(8));return o}
+function line(cv,pts,o={}){
+  const [c,w,h]=fit(cv),L=44,R=10,T=8,B=20;cv._pts=[];
+  if(pts.length<2){c.fillStyle=css('--muted');c.font='12px '+css('--sans');c.textAlign='center';c.fillText('Collecting data…',w/2,h/2);return}
+  const x0=pts[0].x,x1=pts[pts.length-1].x;let y0=0,y1=Math.max(...pts.map(p=>p.y),o.ymin||1)*1.1;
+  const X=x=>L+(x-x0)/(x1-x0||1)*(w-L-R),Y=y=>T+(1-(y-y0)/(y1-y0))*(h-T-B);
+  c.font='11px '+css('--mono');c.fillStyle=css('--muted');c.strokeStyle=css('--grid');c.textAlign='right';c.textBaseline='middle';
+  for(const v of nice(y0,y1,4)){c.beginPath();c.moveTo(L,Y(v));c.lineTo(w-R,Y(v));c.stroke();c.fillText(v,L-6,Y(v))}
+  c.textAlign='center';c.textBaseline='top';for(const v of nice(x0/3600,x1/3600,5)){if(X(v*3600)<L)continue;c.fillText(v+' h',X(v*3600),h-B+5)}
+  if(o.ref){c.strokeStyle=css('--muted');c.setLineDash([4,3]);c.beginPath();c.moveTo(L,Y(o.ref));c.lineTo(w-R,Y(o.ref));c.stroke();c.setLineDash([]);c.fillStyle=css('--ink2');c.textAlign='right';c.textBaseline='bottom';c.fillText(o.refLabel,w-R,Y(o.ref)-2)}
+  c.strokeStyle=css('--s1');c.lineWidth=2;c.lineJoin='round';c.beginPath();pts.forEach((p,i)=>i?c.lineTo(X(p.x),Y(p.y)):c.moveTo(X(p.x),Y(p.y)));c.stroke();
+  pts.forEach(p=>cv._pts.push({px:X(p.x),py:Y(p.y),tip:`${fmt(p.x)}\n${o.unit?p.y.toFixed(0)+' '+o.unit:p.y}`}));
+}
+function drawMatch(){
+  const cv=$('c-m'),[c,w,h]=fit(cv),L=44,R=10,T=8,B=22,n=S.tools.length;cv._pts=[];
+  const lim=EV.lim,yr=Math.max(lim*1.6,...S.tools.map(t=>t.mon?Math.abs(t.mon.thk)*1.15:0));
+  const Y=y=>T+(1-(y+yr)/(2*yr))*(h-T-B),X=i=>L+(i+.5)/n*(w-L-R);
+  c.font='11px '+css('--mono');c.fillStyle=css('--muted');c.strokeStyle=css('--grid');c.textAlign='right';c.textBaseline='middle';
+  for(const v of nice(-yr,yr,6)){c.beginPath();c.moveTo(L,Y(v));c.lineTo(w-R,Y(v));c.stroke();c.fillText(v,L-6,Y(v))}
+  c.strokeStyle=css('--crit');c.setLineDash([5,4]);[lim,-lim].forEach(v=>{c.beginPath();c.moveTo(L,Y(v));c.lineTo(w-R,Y(v));c.stroke()});c.setLineDash([]);
+  c.fillStyle=css('--ink2');c.textAlign='right';c.textBaseline='bottom';c.fillText('+'+lim+' limit',w-R,Y(lim)-2);c.textBaseline='top';c.fillText('−'+lim+' limit',w-R,Y(-lim)+2);
+  S.tools.forEach((t,i)=>{c.fillStyle=css('--ink2');c.textAlign='center';c.textBaseline='top';c.fillText(t.id.slice(3),X(i),h-B+5);
+    if(!t.mon)return;const bad=Math.abs(t.mon.thk)>lim;c.fillStyle=bad?css('--crit'):css('--s1');c.strokeStyle=css('--paper');c.lineWidth=2;c.beginPath();c.arc(X(i),Y(t.mon.thk),5,0,7);c.fill();c.stroke();
+    cv._pts.push({px:X(i),py:Y(t.mon.thk),tip:`${t.id}\nΔ thickness ${t.mon.thk.toFixed(1)} nm\n${hm(t.mon.t)}`})});
+}
+function hoverOn(cv){cv.addEventListener('mousemove',e=>{const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;let best=null,bd=14;
+  for(const p of cv._pts||[]){if(p.x0!==undefined){if(mx>=p.x0&&mx<=p.x1&&my>=p.y0&&my<=p.y1){best=p;break}}else{const d=Math.hypot(p.px-mx,p.py-my);if(d<bd){bd=d;best=p}}}
+  if(best){tip.textContent=best.tip;tip.hidden=false;tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8)+'px';tip.style.top=e.clientY+12+'px'}else tip.hidden=true});
+  cv.addEventListener('mouseleave',()=>tip.hidden=true)}
+['gantt','c-wph','c-q','c-m'].forEach(id=>hoverOn($(id)));
+$('bay').addEventListener('click',e=>{const r=$('bay').getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;const hit=bayPts.find(p=>mx>=p.x0&&mx<=p.x1&&my>=p.y0&&my<=p.y1);if(hit){S.sel=hit.T.i;panels()}});
+$('bay').addEventListener('mousemove',e=>{const r=$('bay').getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;const hit=bayPts.find(p=>mx>=p.x0&&mx<=p.x1&&my>=p.y0&&my<=p.y1);
+  if(hit){const T=hit.T;tip.textContent=`${T.id} · ${T.down?T.phase:T.state}\nwafers ${T.wafers} · work ${work(T)}\nports ${T.lps.map(l=>l.name+':'+l.state).join(' ')}`;tip.hidden=false;tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8)+'px';tip.style.top=e.clientY+12+'px'}else tip.hidden=true});
+$('bay').addEventListener('mouseleave',()=>tip.hidden=true);
+
+/* ---------- panels ---------- */
+const pct=(a,b)=>b?(100*a/b).toFixed(0)+' %':'–';
+function e10(T){const e={...T.e10};e[T.state]+=now-T.since;return e}
+function panels(){
+  $('clock').textContent=fmt(now);
+  const T=S.tools[S.sel];$('selnote').textContent='Selected: '+T.id;
+  $('tname').firstChild.textContent=T.id+' ';$('tsub').textContent=`${T.row?'south':'north'} row · ${T.wafers} wafers measured`;
+  const s=T.state;$('tstate').textContent=s;$('tstate').className='pill p-'+s;$('tphase').textContent=T.down?T.phase:(T.pending?'finishing wafers before '+T.pending.why:T.phase);
+  const lpTxt=l=>l.lot?`${l.lot.id} · ${l.state} · ${l.lot.ret}/${l.lot.n} back`:l.state;
+  $('stations').innerHTML=[['Load port A',lpTxt(T.lps[0])],['Load port B',lpTxt(T.lps[1])],['Robot',T.robot?'moving wafer':'free'],['Aligner + THK',T.aligner?`${T.aligner.w.id} · ${T.aligner.st}`:'empty'],['Interferometer',T.pallet?`${T.pallet.w.id} · ${T.pallet.st}`:'empty'],['Monitor Δ THK',T.mon?`${T.mon.thk.toFixed(1)} nm at ${hm(T.mon.t)}`:'not yet']].map(([a,b])=>`<div class="st"><b>${a}</b><span>${b}</span></div>`).join('');
+  const lots=S.lots.filter(l=>l.done),wph=S.done.filter(t=>t>now-3600).length*(now<3600?3600/Math.max(now,1):1);
+  $('k-wph').textContent=wph.toFixed(0);$('k-lots').textContent=lots.length;
+  $('k-ct').textContent=lots.length?(lots.slice(-50).reduce((a,l)=>a+l.done-l.arr,0)/Math.min(50,lots.length)/60).toFixed(0)+' min':'–';
+  const dl=S.lots.filter(l=>l.disp!=null).slice(-50);$('k-wait').textContent=dl.length?(dl.reduce((a,l)=>a+l.disp-l.arr,0)/dl.length/60).toFixed(1)+' min':'–';
+  $('k-q').textContent=S.queue.length;
+  let up=0,tot=0;S.tools.forEach(t=>{const e=e10(t);up+=e.PROD+e.STBY+e.ENG;tot+=now});$('k-av').textContent=pct(up,tot);
+  const pc=S.pace.filter(p=>p.t>now-3600).map(p=>p.d).sort((a,b)=>a-b);$('k-spw').textContent=pc.length?pc[Math.floor(pc.length/2)].toFixed(0)+' s':'–';
+  $('ttab').innerHTML=S.tools.map(t=>{const e=e10(t),T0=Math.max(now,1),w1=t.doneT.filter(x=>x>now-3600).length,m=t.mon?Math.abs(t.mon.thk)<=EV.lim:null;
+    return `<tr data-i="${t.i}" class="${t.i===S.sel?'sel':''}"><td>${t.id}</td><td class="l"><span class="pill p-${t.state}">${t.state}</span></td><td>${w1}</td><td>${t.wafers}</td><td>${pct(e.PROD,T0)}</td><td>${pct(e.STBY,T0)}</td><td>${pct(e.SDT+e.UDT,T0)}</td><td>${pct(e.PROD+e.STBY+e.ENG,T0)}</td><td>${t.mon?t.mon.thk.toFixed(1):'–'}</td><td class="l ${m===false?'bad':m?'ok':''}">${t.inhibit?'inhibited':m===null?'–':m?'matched':'out'}</td></tr>`}).join('');
+  $('log').innerHTML=S.log.slice(0,90).map(e=>`<div class="${e.cls}"><span class="ts">${hm(e.t)}</span><span class="src">${e.src}</span><span class="msg">${e.msg}</span></div>`).join('');
+  line($('c-wph'),S.hist.slice(-288).map(p=>({x:p.t,y:p.wph})),{unit:'wph',ref:CFG.demand*CFG.sample,refLabel:'demand'});
+  line($('c-q'),S.hist.slice(-288).map(p=>({x:p.t,y:p.q})),{ymin:4});
+  drawMatch();
+}
+$('ttab').addEventListener('click',e=>{const tr=e.target.closest('tr');if(tr){S.sel=+tr.dataset.i;panels()}});
+
+/* ---------- loop ---------- */
+let running=true,lastFrame=performance.now(),lastPanel=0;
+function advance(sec){const target=now+sec;while(H.length&&H[0].t<=target){const ev=pop();now=ev.t;ev.fn()}now=target}
+function frame(ts){const dt=Math.min(0.25,(ts-lastFrame)/1000);lastFrame=ts;if(running)advance(dt*CFG.speed);drawBay();drawGantt();if(ts-lastPanel>300){panels();lastPanel=ts}requestAnimationFrame(frame)}
+function reset(){build();advance(6*3600);panels()}
+$('run').onclick=()=>{running=!running;$('run').textContent=running?'Pause':'Run'};
+$('reset').onclick=reset;
+$('speed').onchange=e=>CFG.speed=+e.target.value;
+$('ntools').onchange=e=>{CFG.n=+e.target.value;S.sel=0;reset()};
+$('veh').onchange=e=>{CFG.veh=+e.target.value;reset()};
+$('demand').onchange=e=>CFG.demand=Math.max(1,+e.target.value||10);
+$('mon').onchange=e=>{CFG.mon=+e.target.value;const g=++S.monGen;S.tools.forEach((T,i)=>at(300+i*600,()=>schedMon(T,g)));log('SYS',`Monitor wafer interval set to ${CFG.mon} h`)};
+$('sample').onchange=e=>CFG.sample=+e.target.value;
+$('mode').onchange=e=>CFG.mode=e.target.value;
+$('rep').onchange=e=>CFG.rep=+e.target.value;
+$('rule').onchange=e=>{CFG.rule=e.target.value;dispatch()};
+document.querySelectorAll('.inj').forEach(b=>b.onclick=()=>{inject(b.dataset.i);panels()});
+reset();requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
